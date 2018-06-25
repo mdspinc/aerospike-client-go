@@ -15,6 +15,7 @@
 package aerospike
 
 import (
+	"bufio"
 	"crypto/tls"
 	"io"
 	"net"
@@ -33,6 +34,9 @@ import (
 // which will be more expensive.
 const DefaultBufferSize = 64 * 1024 // 64 KiB
 
+// ConnBufferSize specifies the size of the buffered reader for a connection.
+const ConnBufferSize = 32 * 1024
+
 // Connection represents a connection with a timeout.
 type Connection struct {
 	node *Node
@@ -45,7 +49,8 @@ type Connection struct {
 	idleDeadline time.Time
 
 	// connection object
-	conn net.Conn
+	conn   net.Conn
+	reader *bufio.Reader
 
 	// to avoid having a buffer pool and contention
 	dataBuffer []byte
@@ -96,6 +101,7 @@ func NewConnection(address string, timeout time.Duration) (*Connection, error) {
 		return nil, errToTimeoutErr(err)
 	}
 	newConn.conn = conn
+	newConn.reader = bufio.NewReaderSize(conn, ConnBufferSize)
 
 	// set timeout at the last possible moment
 	if err := newConn.SetTimeout(timeout); err != nil {
@@ -140,6 +146,7 @@ func NewSecureConnection(policy *ClientPolicy, host *Host) (*Connection, error) 
 	}
 
 	conn.conn = sconn
+	conn.reader = bufio.NewReaderSize(sconn, ConnBufferSize)
 	return conn, nil
 }
 
@@ -171,7 +178,7 @@ func (ctn *Connection) Write(buf []byte) (total int, err error) {
 func (ctn *Connection) ReadN(buf io.Writer, length int64) (total int64, err error) {
 	// if all bytes are not read, retry until successful
 	// Don't worry about the loop; we've already set the timeout elsewhere
-	total, err = io.CopyN(buf, ctn.conn, length)
+	total, err = io.CopyN(buf, ctn.reader, length)
 
 	if err == nil && total == length {
 		return total, nil
@@ -199,7 +206,7 @@ func (ctn *Connection) Read(buf []byte, length int) (total int, err error) {
 	// Don't worry about the loop; we've already set the timeout elsewhere
 	var r int
 	for total < length {
-		r, err = ctn.conn.Read(buf[total:length])
+		r, err = ctn.reader.Read(buf[total:length])
 		total += r
 		if err != nil {
 			break

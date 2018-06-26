@@ -1314,12 +1314,21 @@ func (clnt *Client) batchExecute(policy *BatchPolicy, keys []*Key, cmd batcher) 
 		wg.Add(len(batchNode.BatchNamespaces))
 	}
 
+	oneNodeNS := len(batchNodes) == 1 && len(batchNodes[0].BatchNamespaces) == 1
+
 	for _, batchNode := range batchNodes {
 		for _, bns := range batchNode.BatchNamespaces {
 			newCmd := cmd.cloneBatchCommand(batchNode, bns)
+			if oneNodeNS {
+				// Fast path when there is only one node
+				// and one namespace in the batch.
+				return newCmd.Execute()
+			}
+
 			go func(cmd command) {
 				defer wg.Done()
-				if err := cmd.Execute(); err != nil {
+				wg.Done()
+				if err := newCmd.Execute(); err != nil {
 					errm.Lock()
 					errs = append(errs, err)
 					errm.Unlock()

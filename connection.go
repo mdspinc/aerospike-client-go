@@ -42,7 +42,8 @@ type Connection struct {
 	node *Node
 
 	// timeout
-	timeout time.Duration
+	timeout  time.Duration
+	deadline time.Time
 
 	// duration after which connection is considered idle
 	idleTimeout  time.Duration
@@ -245,10 +246,22 @@ func (ctn *Connection) SetTimeout(timeout time.Duration) error {
 
 		// important: remove deadline when not needed; connections are pooled
 		if ctn.conn != nil {
+			now := time.Now()
+
 			var deadline time.Time
 			if timeout > 0 {
-				deadline = time.Now().Add(timeout)
+				deadline = now.Add(timeout)
 			}
+
+			// Optimization: update deadline only if more than 25% of the last deadline pasted.
+			// See https://github.com/golang/go/issues/15133 for details.
+			if !deadline.IsZero() {
+				if now.Sub(ctn.deadline) < (timeout >> 2) {
+					return nil
+				}
+			}
+
+			ctn.deadline = deadline
 			if err := ctn.conn.SetDeadline(deadline); err != nil {
 				if ctn.node != nil {
 					atomic.AddInt64(&ctn.node.stats.ConnectionsFailed, 1)

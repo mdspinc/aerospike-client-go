@@ -1327,7 +1327,7 @@ func (clnt *Client) batchExecute(policy *BatchPolicy, keys []*Key, cmd batcher) 
 
 			go func(cmd command) {
 				defer wg.Done()
-				wg.Done()
+
 				if err := newCmd.Execute(); err != nil {
 					errm.Lock()
 					errs = append(errs, err)
